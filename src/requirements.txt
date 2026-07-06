@@ -5,6 +5,5 @@ torch-ema
 einops
 tqdm
 torchmetrics[image]
-wandb
 # smalldiffusion은 이 저장소(src/src/smalldiffusion)의 로컬 코드를 그대로 사용합니다.
 # (pip로 별도 설치하지 않음 — main.py를 src/src/ 디렉터리에서 실행하면 import 됩니다.)

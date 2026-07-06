@@ -76,17 +76,6 @@ def ckpt_path(args):
 def cmd_train(args):
     accel = Accelerator(mixed_precision=args.mixed_precision)
 
-    # wandb 초기화 (--no-wandb로 끌 수 있음). main 프로세스에서만 로깅.
-    use_wandb = (not args.no_wandb) and accel.is_main_process
-    if use_wandb:
-        import wandb
-        wandb.init(
-            entity=args.wandb_entity,
-            project=args.wandb_project,
-            name=args.wandb_run_name,
-            config=vars(args),
-        )
-
     dataset = build_dataset(args)
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True,
                          num_workers=args.num_workers)
@@ -144,17 +133,12 @@ def cmd_train(args):
 
         step_loss = ns.loss.item()
         global_step += 1
-        if use_wandb:
-            wandb.log({'train/loss': step_loss, 'epoch': epoch_counter}, step=global_step)
 
         # pbar.n은 "완료된 epoch 수". 값이 바뀐 시점 = 직전 epoch이 막 끝난 시점이고,
         # current_epoch_loss에는 그 직전 epoch의 마지막 batch loss가 들어있음.
         if ns.pbar.n != epoch_counter - start_epoch:
             if current_epoch_loss is not None:
                 loss_history.append(current_epoch_loss)
-                if use_wandb:
-                    wandb.log({'train/epoch_loss': current_epoch_loss,
-                               'epoch': epoch_counter}, step=global_step)
             epoch_counter = start_epoch + ns.pbar.n
             if epoch_counter % args.save_every == 0:
                 save(epoch_counter)
@@ -165,8 +149,6 @@ def cmd_train(args):
         loss_history.append(current_epoch_loss)
     save(args.epochs)
     print(f'[train] 학습 완료. 체크포인트 저장: {path}')
-    if use_wandb:
-        wandb.finish()
 
 
 # ---------------------------------------------------------------------------
@@ -301,11 +283,6 @@ def build_parser():
     train_p.add_argument('--mixed-precision', default='fp16', choices=['no', 'fp16', 'bf16'])
     train_p.add_argument('--fresh', action='store_true',
                           help='기존 체크포인트를 무시하고 처음부터 새로 학습')
-    # wandb
-    train_p.add_argument('--no-wandb', action='store_true', help='wandb 로깅 비활성화')
-    train_p.add_argument('--wandb-entity', default='ktypet13-hanyang-university')
-    train_p.add_argument('--wandb-project', default='mnist-diffusion')
-    train_p.add_argument('--wandb-run-name', default=None, help='wandb run 이름 (기본: 자동 생성)')
     train_p.set_defaults(func=cmd_train)
 
     sample_p = sub.add_parser('sample', help='조건부 이미지 생성')
