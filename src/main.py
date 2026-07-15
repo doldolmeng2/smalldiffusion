@@ -125,7 +125,9 @@ def cmd_train(args):
             'ema': ema.state_dict(),
             'epoch': epoch,
             'loss_history': loss_history,
-            'args': vars(args),
+            # 주의: args.func(서브커맨드 함수 객체)를 그대로 pickle하면 main.py 밖에서
+            # 로드할 때 "Can't get attribute 'cmd_train'" 에러가 난다. 함수류는 제외.
+            'args': {k: v for k, v in vars(args).items() if not callable(v)},
         }
 
     def save(epoch):

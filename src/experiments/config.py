@@ -110,11 +110,46 @@ def get_device():
 
 
 def torch_load(path):
-    """torch 버전에 따른 weights_only 기본값 차이 호환."""
+    """체크포인트 로더.
+
+    - torch 버전별 weights_only 기본값 차이 호환.
+    - main.py가 저장한 체크포인트에는 'args'에 func(=cmd_train 함수 객체)가 pickle로
+      들어있어, main.py 밖에서 로드하면 "Can't get attribute 'cmd_train'" 에러가 난다.
+      해석 불가능한 참조는 placeholder로 대체해서 무시한다 (model/ema 가중치만 쓰면 됨).
+    """
+    import io
+    import pickle
+
+    class _Missing:  # 해석 실패한 pickle 참조 자리표시자
+        def __init__(self, *a, **k):
+            pass
+
+        def __repr__(self):
+            return '<unresolvable pickled object>'
+
+    class _SafeUnpickler(pickle.Unpickler):
+        def find_class(self, module, name):
+            try:
+                return super().find_class(module, name)
+            except (AttributeError, ModuleNotFoundError):
+                return _Missing
+
+    class _SafePickle:
+        Unpickler = _SafeUnpickler
+
+        @staticmethod
+        def load(f, **kw):
+            return _SafeUnpickler(f, **kw).load()
+
+        @staticmethod
+        def loads(b, **kw):
+            return _SafeUnpickler(io.BytesIO(b), **kw).load()
+
     try:
-        return torch.load(path, map_location='cpu', weights_only=False)
-    except TypeError:
-        return torch.load(path, map_location='cpu')
+        return torch.load(path, map_location='cpu', weights_only=False,
+                          pickle_module=_SafePickle)
+    except TypeError:  # 구버전 torch: weights_only 인자 없음
+        return torch.load(path, map_location='cpu', pickle_module=_SafePickle)
 
 
 def fmt(v: float) -> str:
