@@ -8,12 +8,14 @@ MNIST 조건부(class-conditional) Diffusion Transformer (DiT) — smalldiffusio
     eval    FID 평가
 
 사용 예:
-    python main.py train --epochs 300 --batch-size 256
-    python main.py train --epochs 600                      # 이어서 300 epoch 더 학습
+    python main.py train --epochs 300
     python main.py train --fresh                            # 체크포인트 무시하고 새로 학습
     python main.py sample --digit 7 --n-samples 16 --cfg-scale 4.0
     python main.py sample --all-digits
     python main.py eval
+    // 특정 시점 성능 비교
+    python main.py sample --all-digits --ckpt-name mnist_dit_e300.pth
+    python main.py eval --ckpt-name mnist_dit_e500.pth
 
 주의: train/sample/eval 사이에는 --depth, --head-dim, --num-heads, --patch-size 등
 모델 구조 관련 인자를 반드시 동일하게 유지해야 합니다. 다르면 체크포인트 로드 시
@@ -117,14 +119,27 @@ def cmd_train(args):
     current_epoch_loss = None
     global_step = 0
 
-    def save(epoch):
-        torch.save({
+    def make_ckpt(epoch):
+        return {
             'model': model.state_dict(),
             'ema': ema.state_dict(),
             'epoch': epoch,
             'loss_history': loss_history,
             'args': vars(args),
-        }, path)
+        }
+
+    def save(epoch):
+        # 최신 체크포인트: 항상 같은 파일에 덮어씀 (이어학습용)
+        torch.save(make_ckpt(epoch), path)
+
+    def save_snapshot(epoch):
+        # 시점별 스냅샷: epoch 번호를 붙여 별도 파일로 남김 (덮어쓰지 않음).
+        # sample/eval 시 --ckpt-name 으로 이 파일을 지정해 각 시점을 비교할 수 있음.
+        root, ext = os.path.splitext(args.ckpt_name)
+        snap_name = f'{root}_e{epoch}{ext}'
+        snap_path = os.path.join(args.ckpt_dir, snap_name)
+        torch.save(make_ckpt(epoch), snap_path)
+        print(f'[train] 스냅샷 저장: {snap_path}')
 
     for ns in training_loop(loader, model, schedule, epochs=remaining,
                              lr=args.lr, accelerator=accel, conditional=True):
@@ -142,12 +157,18 @@ def cmd_train(args):
             epoch_counter = start_epoch + ns.pbar.n
             if epoch_counter % args.save_every == 0:
                 save(epoch_counter)
+            # 주기적 스냅샷 (--snapshot-every, 0이면 비활성화)
+            if args.snapshot_every > 0 and epoch_counter % args.snapshot_every == 0:
+                save_snapshot(epoch_counter)
 
         current_epoch_loss = step_loss
 
     if current_epoch_loss is not None:
         loss_history.append(current_epoch_loss)
     save(args.epochs)
+    # 마지막 epoch 스냅샷도 남겨 최종 시점을 별도 보관 (중복 저장 방지)
+    if args.snapshot_every > 0 and args.epochs % args.snapshot_every != 0:
+        save_snapshot(args.epochs)
     print(f'[train] 학습 완료. 체크포인트 저장: {path}')
 
 
@@ -276,9 +297,10 @@ def build_parser():
     train_p = sub.add_parser('train', help='학습 실행 (체크포인트 있으면 자동 이어서 학습)')
     add_common_args(train_p)
     train_p.add_argument('--epochs', type=int, default=300)
-    train_p.add_argument('--batch-size', type=int, default=256)
+    train_p.add_argument('--batch-size', type=int, default=1024)
     train_p.add_argument('--lr', type=float, default=1e-3)
-    train_p.add_argument('--save-every', type=int, default=1, help='몇 epoch마다 체크포인트 저장할지')
+    train_p.add_argument('--save-every', type=int, default=1, help='몇 epoch마다 최신 체크포인트를 갱신할지')
+    train_p.add_argument('--snapshot-every', type=int, default=100, help='몇 epoch마다 시점별 스냅샷(mnist_dit_e100.pth 등)을 별도 저장할지. 0이면 비활성화. 최신 체크포인트와 별개로 덮어쓰지 않고 보관함')
     train_p.add_argument('--num-workers', type=int, default=4)
     train_p.add_argument('--mixed-precision', default='fp16', choices=['no', 'fp16', 'bf16'])
     train_p.add_argument('--fresh', action='store_true',
@@ -288,7 +310,7 @@ def build_parser():
     sample_p = sub.add_parser('sample', help='조건부 이미지 생성')
     add_common_args(sample_p)
     sample_p.add_argument('--digit', type=int, default=0, choices=range(10))
-    sample_p.add_argument('--n-samples', type=int, default=16, help='생성할 장수')
+    sample_p.add_argument('--n-samples', type=int, default=16, help='N조건부 이미지 생성')
     sample_p.add_argument('--all-digits', action='store_true', help='0~9 전부 생성 (한 장의 그리드로 저장)')
     sample_p.set_defaults(func=cmd_sample)
 

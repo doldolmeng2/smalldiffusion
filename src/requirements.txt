@@ -1,9 +1,27 @@
-torch
-torchvision
+# ── 설치 순서 ───────────────────────────────────────────────────
+# 1) 먼저 PyTorch를 서버 GPU 드라이버에 맞는 빌드로 직접 설치하세요.
+#    (이 파일에는 torch/torchvision을 넣지 않습니다. `pip install torch`로
+#     그냥 깔면 너무 최신 CUDA 빌드가 받아져 torch.cuda.is_available()가
+#     False가 됩니다.)
+#
+#    현재 서버(RTX 3090 Ti, 드라이버 CUDA 12.2 지원) 기준:
+#      pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+#
+#    cu121로도 안 되면 cu118로:
+#      pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+#
+#    확인: python -c "import torch; print(torch.cuda.is_available())"   # True 여야 함
+#
+# 2) 그다음 나머지를 설치하세요:
+#      pip install -r requirements.txt
+#    (torch가 이미 깔려 있으면 아래 패키지들이 torch를 덮어쓰지 않습니다.)
+# ────────────────────────────────────────────────────────────────
 accelerate
 torch-ema
 einops
 tqdm
 torchmetrics[image]
-# smalldiffusion은 이 저장소(src/src/smalldiffusion)의 로컬 코드를 그대로 사용합니다.
-# (pip로 별도 설치하지 않음 — main.py를 src/src/ 디렉터리에서 실행하면 import 됩니다.)
+matplotlib
+scikit-learn   # analyze 서브커맨드의 t-SNE용 (없어도 PCA만으로 동작함)
+# smalldiffusion은 이 저장소의 로컬 코드(smalldiffusion/ 폴더)를 그대로 사용합니다.
+# pip로 별도 설치하지 않으며, main.py가 있는 디렉터리에서 실행하면 import 됩니다.
