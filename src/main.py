@@ -17,10 +17,6 @@ MNIST 조건부(class-conditional) Diffusion Transformer (DiT) — smalldiffusio
     python main.py sample --all-digits --ckpt-name mnist_dit_e300.pth
     python main.py eval --ckpt-name mnist_dit_e500.pth
 
-    python experiments/run_sweep.py --stage coarse                                        # s∈{0,1,2,3,4,6,8} × 2만장 × 1seed
-    python experiments/run_sweep.py --stage final --cfgs 0 1 2 3 4 --n-per-class 6000 --clf-seeds 0 1 2
-
-
 주의: train/sample/eval 사이에는 --depth, --head-dim, --num-heads, --patch-size 등
 모델 구조 관련 인자를 반드시 동일하게 유지해야 합니다. 다르면 체크포인트 로드 시
 shape mismatch 에러가 납니다.

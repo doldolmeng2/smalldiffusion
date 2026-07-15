@@ -23,3 +23,14 @@ __pycache__
 /env/
 .venv
 .coverage
+venv/
+__pycache__/
+*.pyc
+datasets/
+data/
+checkpoints/
+ckpts/
+logs/
+outputs/
+*.pth
+.env
