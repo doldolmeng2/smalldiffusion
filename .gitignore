@@ -32,5 +32,6 @@ checkpoints/
 ckpts/
 logs/
 outputs/
+clf/
 *.pth
 .env

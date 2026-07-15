@@ -1,0 +1,9 @@
+stage,kind,cfg_scale,n_per_class,gen_seed,clf_seed,accuracy,gap,fidelity,diversity,data_dir,result_json
+coarse,TRTR,,2000,0,0,0.986,,0.9967,0.0538230761885643,real_n2000_seed0,/home/ailab/2026_summer_intern/dm/smalldiffusion/src/experiments/results/clf/real_n2000_seed0_seed0.json
+coarse,TSTR,0,2000,0,0,0.9824,0.0035999999999999366,0.97985,0.053101555071771146,gen_cfg0_n2000_seed0,/home/ailab/2026_summer_intern/dm/smalldiffusion/src/experiments/results/clf/gen_cfg0_n2000_seed0_seed0.json
+coarse,TSTR,1,2000,0,0,0.9604,0.025599999999999956,0.99995,0.0495744813233614,gen_cfg1_n2000_seed0,/home/ailab/2026_summer_intern/dm/smalldiffusion/src/experiments/results/clf/gen_cfg1_n2000_seed0_seed0.json
+coarse,TSTR,2,2000,0,0,0.9451,0.040899999999999936,1.0,0.04729583449661732,gen_cfg2_n2000_seed0,/home/ailab/2026_summer_intern/dm/smalldiffusion/src/experiments/results/clf/gen_cfg2_n2000_seed0_seed0.json
+coarse,TSTR,3,2000,0,0,0.928,0.05799999999999994,1.0,0.04556122086942196,gen_cfg3_n2000_seed0,/home/ailab/2026_summer_intern/dm/smalldiffusion/src/experiments/results/clf/gen_cfg3_n2000_seed0_seed0.json
+coarse,TSTR,4,2000,0,0,0.9162,0.06979999999999997,1.0,0.04419625587761402,gen_cfg4_n2000_seed0,/home/ailab/2026_summer_intern/dm/smalldiffusion/src/experiments/results/clf/gen_cfg4_n2000_seed0_seed0.json
+coarse,TSTR,6,2000,0,0,0.8936,0.09240000000000004,1.0,0.04229051731526852,gen_cfg6_n2000_seed0,/home/ailab/2026_summer_intern/dm/smalldiffusion/src/experiments/results/clf/gen_cfg6_n2000_seed0_seed0.json
+coarse,TSTR,8,2000,0,0,0.8719,0.11409999999999998,1.0,0.041013851575553414,gen_cfg8_n2000_seed0,/home/ailab/2026_summer_intern/dm/smalldiffusion/src/experiments/results/clf/gen_cfg8_n2000_seed0_seed0.json
