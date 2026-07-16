@@ -41,7 +41,7 @@ import train_classifier as TC
 import judge_and_diversity as JD
 import plot as P
 
-COARSE_CFGS = [0, 1, 2, 3, 4, 6, 8]
+COARSE_CFGS = [-0.5, -0.4, -0.3, -0.25, -0.2, -0.1, 0]
 
 CSV_FIELDS = ['stage', 'kind', 'cfg_scale', 'n_per_class', 'gen_seed', 'clf_seed',
               'accuracy', 'gap', 'fidelity', 'diversity', 'data_dir', 'result_json']
