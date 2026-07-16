@@ -162,6 +162,14 @@ def gen_dir(cfg_scale, n_per_class, seed) -> Path:
 
 
 def real_dir(n_per_class, seed) -> Path:
+    """n_per_class=0 은 '원본 train 60k 전체(클래스 불균형 그대로)'를 뜻하는 규약.
+
+    주의: MNIST train은 클래스당 개수가 5421(숫자 5)~6742(숫자 1)로 불균형이라
+    '클래스당 6000장 균등 추출'은 불가능하다. 6만장 실험의 원본 쪽은 반드시
+    n_per_class=0(전체)을 사용한다.
+    """
+    if n_per_class == 0:
+        return DATA_DIR / 'real_full'
     return DATA_DIR / f'real_n{n_per_class}_seed{seed}'
 
 

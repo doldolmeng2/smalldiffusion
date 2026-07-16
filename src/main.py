@@ -24,10 +24,12 @@ shape mismatch 에러가 납니다.
 import argparse
 import os
 import random
+import sys
+from pathlib import Path
 
 import torch
 from accelerate import Accelerator
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, TensorDataset
 from torchvision import transforms as tf
 from torchvision.datasets import MNIST
 from torchvision.utils import make_grid, save_image
@@ -57,6 +59,36 @@ def build_dataset(args):
     return MNIST(args.data_dir, train=True, download=True, transform=build_transform())
 
 
+def build_train_dataset(args):
+    """학습용 데이터셋.
+
+    --n-per-class N (>0) 이면 experiments/make_real_subset.py 와 동일한 로직/seed로
+    만든 클래스 균등 서브셋(experiments/data/real_n{N}_seed{K})을 사용한다.
+    서브셋은 디스크에 저장·재사용되므로, 이후 run_sweep.py 의 TRTR 분류기가
+    '확산 모델이 학습한 것과 문자 그대로 같은 데이터'로 학습된다.
+    0(기본값)이면 기존과 동일하게 train 60k 전체를 사용한다.
+    """
+    if getattr(args, 'n_per_class', 0) <= 0:
+        return build_dataset(args)
+
+    # experiments 모듈 재사용 (경로 삽입은 experiments 쪽 관례와 동일)
+    _here = Path(__file__).resolve().parent
+    for _p in (str(_here), str(_here / 'experiments')):
+        if _p not in sys.path:
+            sys.path.insert(0, _p)
+    import config as C            # experiments/config.py
+    import make_real_subset as R  # experiments/make_real_subset.py
+
+    sdir = C.real_dir(args.n_per_class, args.subset_seed)
+    if not C.dataset_exists(sdir):
+        R.make_real_subset(args.n_per_class, args.subset_seed, sdir)
+    else:
+        print(f'[train] 기존 서브셋 재사용: {sdir}')
+    images01, labels, _ = C.load_dataset(sdir)
+    print(f'[train] 학습 데이터: {sdir.name} ({len(labels)}장, 클래스당 {args.n_per_class}장)')
+    return TensorDataset(images01 * 2 - 1, labels)   # [0,1] → [-1,1], (x, label) 쌍 유지
+
+
 def build_model(args):
     dim = args.head_dim * args.num_heads
     return DiT(
@@ -78,9 +110,14 @@ def ckpt_path(args):
 def cmd_train(args):
     accel = Accelerator(mixed_precision=args.mixed_precision)
 
-    dataset = build_dataset(args)
-    loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True,
-                         num_workers=args.num_workers)
+    # --n-per-class 지정 시 체크포인트 이름 자동 구분 (기본 이름 그대로면 덮어쓰기 방지)
+    if args.n_per_class > 0 and args.ckpt_name == 'mnist_dit.pth':
+        args.ckpt_name = f'mnist_dit_n{args.n_per_class}.pth'
+        print(f'[train] --n-per-class 지정됨 → 체크포인트 이름: {args.ckpt_name}')
+
+    dataset = build_train_dataset(args)
+    loader = DataLoader(dataset, batch_size=min(args.batch_size, len(dataset)),
+                         shuffle=True, num_workers=args.num_workers)
 
     schedule = ScheduleDDPM(beta_start=args.beta_start, beta_end=args.beta_end,
                              N=args.diffusion_steps)
@@ -299,6 +336,13 @@ def build_parser():
     train_p = sub.add_parser('train', help='학습 실행 (체크포인트 있으면 자동 이어서 학습)')
     add_common_args(train_p)
     train_p.add_argument('--epochs', type=int, default=300)
+    train_p.add_argument('--n-per-class', type=int, default=0,
+                          help='클래스당 학습 데이터 개수 제한 (0=60k 전체). '
+                               '예: 100 → 총 1000장으로 학습. 서브셋은 '
+                               'experiments/data/real_n{N}_seed{K}에 저장되어 '
+                               'run_sweep.py의 TRTR과 동일 데이터를 공유')
+    train_p.add_argument('--subset-seed', type=int, default=0,
+                          help='서브셋 추출 seed (run_sweep의 real subset seed와 일치해야 함)')
     train_p.add_argument('--batch-size', type=int, default=1024)
     train_p.add_argument('--lr', type=float, default=1e-3)
     train_p.add_argument('--save-every', type=int, default=1, help='몇 epoch마다 최신 체크포인트를 갱신할지')

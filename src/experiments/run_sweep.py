@@ -18,8 +18,15 @@
   # 2차 fine: coarse 곡선 보고 관심 구간 추가
   python experiments/run_sweep.py --stage fine --cfgs 0 0.25 0.5 0.75 1 --n-per-class 2000
 
-  # 최종: 확정 cfg × 6만 장 × 3 seed
-  python experiments/run_sweep.py --stage final --cfgs 0 1 2 3 4 --n-per-class 6000 --clf-seeds 0 1 2
+  # 최종(공정 비교): 생성 6만 장 vs 원본 train 60k 전체 × 3 seed
+  #   --real-n-per-class 0 = TRTR을 확산 모델과 같은 60k 전체로 학습
+  python experiments/run_sweep.py --stage full60k --cfgs -0.5 -0.3 -0.25 0 \
+      --n-per-class 6000 --real-n-per-class 0 --clf-seeds 0 1 2
+
+  # 소규모 데이터 실험 (main.py train --n-per-class 100 으로 학습한 ckpt 사용):
+  #   TRTR이 확산 모델 학습 서브셋(real_n100_seed0)과 동일 데이터로 학습됨
+  python experiments/run_sweep.py --stage n1000 --n-per-class 100 \
+      --sd-ckpt checkpoints/mnist_dit_n100.pth
 """
 import argparse
 import csv
@@ -48,10 +55,17 @@ CSV_FIELDS = ['stage', 'kind', 'cfg_scale', 'n_per_class', 'gen_seed', 'clf_seed
 
 
 def run(stage, cfgs, n_per_class, clf_seeds, gen_seed, sd_ckpt, batch_size,
-        force=False, skip_plot=False):
+        force=False, skip_plot=False, real_n_per_class=None):
     C.ensure_dirs()
     t0 = time.time()
-    print(f'=== sweep [{stage}] cfgs={cfgs}  n/class={n_per_class}  clf_seeds={clf_seeds} ===')
+
+    # TRTR용 원본 크기: 기본은 생성과 동일(크기 매칭), 0이면 train 60k 전체.
+    # 60k 실험은 MNIST 클래스 불균형(최소 5421장) 때문에 균등 6000/class 추출이 불가능하므로
+    # --real-n-per-class 0 으로 전체를 쓴다 (확산 모델이 학습한 것과 동일 데이터).
+    real_npc = n_per_class if real_n_per_class is None else real_n_per_class
+    real_total = 60000 if real_npc == 0 else real_npc * 10
+    print(f'=== sweep [{stage}] cfgs={cfgs}  gen n/class={n_per_class}  '
+          f'real={real_total}장  clf_seeds={clf_seeds} ===')
 
     # 1. 심판 준비 (동결, 1회)
     JD.train_judge()
@@ -59,10 +73,10 @@ def run(stage, cfgs, n_per_class, clf_seeds, gen_seed, sd_ckpt, batch_size,
 
     rows = []
 
-    # 2. TRTR 천장 (크기 매칭: 생성과 같은 n_per_class)
-    rdir = C.real_dir(n_per_class, seed=0)
+    # 2. TRTR 천장
+    rdir = C.real_dir(real_npc, seed=0)
     if not C.dataset_exists(rdir) or force:
-        R.make_real_subset(n_per_class, seed=0, out_dir=rdir)
+        R.make_real_subset(real_npc, seed=0, out_dir=rdir)
     else:
         print(f'[skip] 원본 부분집합 존재: {rdir}')
     rdiag = JD.diagnose(rdir, judge=judge, force=force)   # 참고용 baseline
@@ -71,12 +85,12 @@ def run(stage, cfgs, n_per_class, clf_seeds, gen_seed, sd_ckpt, batch_size,
     for s in clf_seeds:
         res = TC.train_and_eval(rdir, s, force=force)
         trtr_accs.append(res['accuracy'])
-        rows.append(dict(stage=stage, kind='TRTR', cfg_scale='', n_per_class=n_per_class,
+        rows.append(dict(stage=stage, kind='TRTR', cfg_scale='', n_per_class=real_npc,
                          gen_seed=0, clf_seed=s, accuracy=res['accuracy'], gap='',
                          fidelity=rdiag['fidelity'], diversity=rdiag['diversity'],
                          data_dir=rdir.name, result_json=str(TC.result_path(rdir, s))))
     trtr_mean = sum(trtr_accs) / len(trtr_accs)
-    print(f'[TRTR] 천장선(원본 {n_per_class*10}장, {len(clf_seeds)} seed 평균) = {trtr_mean:.4f}')
+    print(f'[TRTR] 천장선(원본 {real_total}장, {len(clf_seeds)} seed 평균) = {trtr_mean:.4f}')
 
     # 3. cfg 스윕: 생성 → TSTR → 진단
     accel = Accelerator()
@@ -127,6 +141,9 @@ def main():
                    help='cfg_scale(s) 그리드')
     p.add_argument('--n-per-class', type=int, default=2000,
                    help='클래스당 생성 수 (coarse=2000 → 2만 장, final=6000 → 6만 장)')
+    p.add_argument('--real-n-per-class', type=int, default=None,
+                   help='TRTR용 원본 클래스당 개수. 미지정=--n-per-class와 동일(크기 매칭), '
+                        '0=train 60k 전체(6만장 실험용; MNIST는 불균형이라 6000/class 균등 추출 불가)')
     p.add_argument('--clf-seeds', type=int, nargs='+', default=[0],
                    help='분류기 seed 목록 (coarse=[0], final=[0,1,2])')
     p.add_argument('--gen-seed', type=int, default=C.GEN_SEED,
@@ -138,7 +155,8 @@ def main():
     p.add_argument('--skip-plot', action='store_true')
     a = p.parse_args()
     run(a.stage, a.cfgs, a.n_per_class, a.clf_seeds, a.gen_seed,
-        a.sd_ckpt, a.batch_size, a.force, a.skip_plot)
+        a.sd_ckpt, a.batch_size, a.force, a.skip_plot,
+        real_n_per_class=a.real_n_per_class)
 
 
 if __name__ == '__main__':
