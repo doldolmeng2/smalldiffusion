@@ -55,7 +55,7 @@ python main.py train --n-per-class 100 --epochs 900 --batch-size 256 --snapshot-
 
 # 2) 스윕: 생성 1000장(100/class) + TRTR(같은 1000장) + TSTR + 그림
 python experiments/run_sweep.py --stage n1000 \
-    --cfgs -0.5 -0.3 0 1 2 \
+    --cfgs -0.5 -0.4 -0.3 -0.25 -0.1 0 \
     --n-per-class 100 --sd-ckpt checkpoints/mnist_dit_n100.pth
 
 # 다른 크기도 동일 패턴: --n-per-class 1000 → 총 1만 장, ckpt mnist_dit_n1000.pth
@@ -102,6 +102,75 @@ python experiments/train_classifier.py --data-dir experiments/data/gen_cfg4_n200
 python experiments/judge_and_diversity.py --data-dir experiments/data/gen_cfg4_n2000_seed0
 python experiments/plot.py --csv experiments/results/results_coarse.csv --stage coarse
 ```
+
+---
+
+# 데이터 크기(n) × 합성 증강(r) 실험 — `datasize/`
+
+> 설계서: `자료/실험설계_데이터크기_합성증강.md`
+
+CFG 스윕과 **별개의 실험**이다. CFG를 **-0.25로 고정**하고, 변수를 **원본 데이터 크기 n**과
+**합성 비율 r=s/n**으로 둔다. 질문: *"원본이 n개일 때 그 n개로 학습한 확산이 만든 합성을
+더하면 분류기가 좋아지는가? 이득은 n이 작을수록 큰가?"*
+
+이 실험은 기존 `experiments/` 모듈(`config.py`·`generate.py`·`train_classifier.py`)을
+**재사용**하며, 기존 파일은 건드리지 않는다. 코드는 `experiments/datasize/`에 있다.
+
+## 변수·조건
+
+- **n** ∈ {1k, 5k, 10k, 60k} — 확산 학습 = 분류기 baseline 원본(같은 데이터).
+  ⚠️ n=60k는 val 5k 예약으로 **실제 학습 55k**, 합성은 기존 `mnist_dit_e900.pth` 재사용.
+- **r** ∈ {0, 0.5, 1, 2, 4, 8} — r=0은 baseline.
+- **조건**: baseline(원본 n) / augmented(원본 n + 합성 s) / oracle(원본 n + 추가 진짜 s).
+- **seed** 3개(0·1·2) 평균±표준편차.
+- **통제**: real val 5k로 **early stopping**(Adam·batch128·patience8), test 10k는 평가 전용,
+  진짜·합성 동일 정규화, 라벨 균등.
+
+## 실행 (src/src 에서, 순서대로)
+
+```bash
+python experiments/datasize/splits.py                              # 1) 분할(val/pool/n서브셋)
+python experiments/datasize/train_diffusion_ds.py --all --steps 40000  # 2) 작은 n 확산 학습
+python experiments/datasize/gen_synth.py --all                     # 3) n별 합성 풀 생성(cfg=-0.25)
+python experiments/datasize/run_datasize.py                        # 4) (n,r,seed) 그리드→CSV
+python experiments/datasize/aggregate.py                           # 5) seed 집계→요약 CSV
+```
+
+- 조건별 결과 캐시 → 중단 후 재실행 시 이어서 진행(`--force`로 무시).
+- 빠른 점검: `run_datasize.py --seeds 0 --keys n1000`.
+- 큰 n 축소(메모리/시간): `gen_synth.py --key n60000 --max-r 4`.
+
+## oracle 가용성 (MNIST 클래스 불균형 반영, 최소 클래스 4,921/class 기준)
+
+| n | oracle 가능 r |
+|---|---|
+| 1,000 / 5,000 | 0.5·1·2·4·8 (전부) |
+| 10,000 | 0.5·1·2 (4·8은 pool 여분 부족) |
+| 60,000(=55k) | 없음 (pool 소진) |
+
+불가 지점은 코드가 자동 생략한다.
+
+## 파일 구성 (`datasize/`)
+
+| 파일 | 책임 |
+|---|---|
+| `ds_config.py` | 그리드·경로·early stopping 분류기 설정, oracle 가용성 판정(불균형 반영) |
+| `splits.py` | val/pool/n서브셋 고정 분할 + oracle 추가원본 추출(n서브셋과 disjoint) |
+| `train_diffusion_ds.py` | n별 DiT 학습(동일 step 수). n60000은 기존 e900 재사용 |
+| `gen_synth.py` | n별 합성 풀(=8n) 생성 — `generate.py` 재사용 |
+| `train_clf_es.py` | real val 조기종료 분류기 — `MnistCNN`/`evaluate` 재사용 |
+| `run_datasize.py` | baseline/aug/oracle 그리드 실행 → `results_datasize.csv` |
+| `aggregate.py` | seed 평균±std + gain_vs_baseline + oracle_minus_aug → `summary_datasize.csv` |
+
+## 산출물 (`results/datasize/`)
+
+```
+clf/{key}_r{r}_{kind}_seed{seed}.json   # 조건별 top-1 / val_acc / best_epoch
+results_datasize.csv                    # n_key,total,r,s,kind,seed,n_train,accuracy,val_acc,best_epoch
+summary_datasize.csv                    # 평균±std + gain_vs_baseline + oracle_minus_aug
+```
+
+---
 
 ## 설계서의 함정 체크 반영 사항
 
