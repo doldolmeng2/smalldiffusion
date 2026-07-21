@@ -24,9 +24,11 @@ import sys
 import time
 from pathlib import Path
 
-_EXP = Path(__file__).resolve().parent
-if str(_EXP) not in sys.path:
-    sys.path.insert(0, str(_EXP))
+_EXP = Path(__file__).resolve().parent        # .../experiments/datasize
+_SRC = _EXP.parents[1]                         # .../src/src
+for _p in (str(_SRC), str(_SRC / 'experiments'), str(_EXP)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import torch
 

@@ -19,9 +19,14 @@ import argparse
 import sys
 from pathlib import Path
 
-_EXP = Path(__file__).resolve().parent
-if str(_EXP) not in sys.path:
-    sys.path.insert(0, str(_EXP))
+# ⚠️ smalldiffusion / config 를 임포트하기 전에 경로를 먼저 잡아야 한다.
+#    스크립트를 직접 실행하면 sys.path[0] 은 이 파일의 디렉터리(experiments/datasize)라
+#    src/src(=smalldiffusion 패키지 위치)가 잡히지 않는다. generate.py 와 동일한 관례.
+_EXP = Path(__file__).resolve().parent        # .../experiments/datasize
+_SRC = _EXP.parents[1]                         # .../src/src
+for _p in (str(_SRC), str(_SRC / 'experiments'), str(_EXP)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import math
 
