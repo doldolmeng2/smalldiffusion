@@ -42,7 +42,7 @@ import config as C
 import generate as G   # build_dit() 재사용 → load_sd_model 과 구조 일치 보장
 
 
-def train_one(key, steps=40000, lr=1e-3, batch_size=256, num_workers=2):
+def train_one(key, steps=40000, lr=1e-3, batch_size=256, num_workers=0, save_every=5000):
     if key == 'n60000':
         print(f'[train_diff] {key}: full-60k 체크포인트({C.SD_CKPT}) 재사용 → 학습 생략')
         return
@@ -54,13 +54,24 @@ def train_one(key, steps=40000, lr=1e-3, batch_size=256, num_workers=2):
     imgs01, labels, _ = C.load_dataset(sdir)
     ds = TensorDataset(imgs01 * 2 - 1, labels)          # [0,1]→[-1,1], (x, label) 유지
     accel = Accelerator()
+    # ⚠️ num_workers 기본 0. 이 데이터는 이미 메모리에 올라간 TensorDataset이라 워커가 불필요하고,
+    #    작은 n은 epoch당 batch가 몇 개뿐이라(예: n=1000, batch 256 → 4개) 워커를 쓰면
+    #    매 epoch 워커를 새로 띄웠다 죽이길 수만 번 반복하게 된다(오버헤드 + 데드락 위험).
     loader = DataLoader(ds, batch_size=min(batch_size, len(ds)),
-                        shuffle=True, num_workers=num_workers, drop_last=False)
+                        shuffle=True, num_workers=num_workers, drop_last=False,
+                        persistent_workers=(num_workers > 0))
 
     schedule = ScheduleDDPM(beta_start=C.BETA_START, beta_end=C.BETA_END, N=C.SCHEDULE_N)
     model = G.build_dit()
     ema = EMA(model.parameters(), decay=C.EMA_DECAY)
     ema.to(accel.device)
+
+    ckpt = D.diffusion_ckpt(key)
+    ckpt.parent.mkdir(parents=True, exist_ok=True)
+
+    def _save(step, done=False):
+        torch.save({'model': model.state_dict(), 'ema': ema.state_dict(),
+                    'steps': step, 'key': key, 'done': done}, ckpt)
 
     # step 기준 학습: 목표 step 을 채우도록 epoch 수를 환산하고, 도달 시 중단.
     steps_per_epoch = math.ceil(len(ds) / min(batch_size, len(ds)))
@@ -71,13 +82,13 @@ def train_one(key, steps=40000, lr=1e-3, batch_size=256, num_workers=2):
         ema.update()
         step += 1
         ns.pbar.set_description(f'[{key}] step {step}/{steps} Loss={ns.loss.item():.5f}')
+        # 중간 저장: 멈추거나 죽어도 여기까지는 건짐
+        if save_every > 0 and step % save_every == 0:
+            _save(step)
         if step >= steps:
             break
 
-    ckpt = D.diffusion_ckpt(key)
-    ckpt.parent.mkdir(parents=True, exist_ok=True)
-    torch.save({'model': model.state_dict(), 'ema': ema.state_dict(),
-                'steps': step, 'key': key}, ckpt)
+    _save(step, done=True)
     print(f'[train_diff] {key}: {step} step 학습 완료 → {ckpt}')
 
 
@@ -89,14 +100,20 @@ def main():
     p.add_argument('--steps', type=int, default=40000)
     p.add_argument('--lr', type=float, default=1e-3)
     p.add_argument('--batch-size', type=int, default=256)
+    p.add_argument('--num-workers', type=int, default=0,
+                   help='0 권장. 데이터가 이미 메모리에 있어 워커가 불필요하고, '
+                        '작은 n에서는 워커 재생성이 잦아 데드락 위험이 있다.')
+    p.add_argument('--save-every', type=int, default=5000,
+                   help='N step마다 중간 체크포인트 저장 (0=끄기)')
     a = p.parse_args()
 
     if a.all:
         for spec in D.N_SPECS:
             if spec['key'] != 'n60000':
-                train_one(spec['key'], a.steps, a.lr, a.batch_size)
+                train_one(spec['key'], a.steps, a.lr, a.batch_size,
+                          a.num_workers, a.save_every)
     elif a.key:
-        train_one(a.key, a.steps, a.lr, a.batch_size)
+        train_one(a.key, a.steps, a.lr, a.batch_size, a.num_workers, a.save_every)
     else:
         p.error('--key 또는 --all 을 지정하세요')
 
