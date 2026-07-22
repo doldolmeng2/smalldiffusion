@@ -120,33 +120,52 @@ def embed(groups, feat, device):
 
 
 def plot(emb, key, r, feat, out_path):
+    """행 = 비교대상(synth[, oracle]), 열 = [baseline만 / 대상만 / 대상을 baseline 위에].
+    세 패널이 '같은 t-SNE 좌표축(공유 xlim/ylim)'이라 어디가 새로 채워졌는지 바로 보인다."""
     names = list(emb.keys())
     real_name = names[0]
     overlays = names[1:]                     # synth (, oracle)
-    n_panels = len(overlays)
-    fig, axes = plt.subplots(1, n_panels, figsize=(6.2 * n_panels, 5.6),
-                             squeeze=False)
     cmap = plt.get_cmap('tab10')
     Zr, yr = emb[real_name]
 
-    for ax, ov in zip(axes[0], overlays):
-        Zo, yo = emb[ov]
-        # 진짜 = 채운 점(연하게), 오버레이 = 테두리만(진하게) — 겹침을 봐야 하므로
-        ax.scatter(Zr[:, 0], Zr[:, 1], s=14, c=[cmap(c) for c in yr],
-                   alpha=0.35, linewidths=0, label=f'{real_name}')
-        ax.scatter(Zo[:, 0], Zo[:, 1], s=22, facecolors='none',
-                   edgecolors=[cmap(c) for c in yo], linewidths=0.9,
-                   label=ov)
-        ax.set_title(f'{real_name}  +  {ov}', fontsize=11)
+    # 모든 점을 아우르는 공유 축 범위 (패널 간 위치 비교가 유효하려면 필수)
+    allZ = np.concatenate([v[0] for v in emb.values()])
+    pad = 0.04 * (allZ.max(0) - allZ.min(0))
+    xlim = (allZ[:, 0].min() - pad[0], allZ[:, 0].max() + pad[0])
+    ylim = (allZ[:, 1].min() - pad[1], allZ[:, 1].max() + pad[1])
+
+    nrow = len(overlays)
+    fig, axes = plt.subplots(nrow, 3, figsize=(5.4 * 3, 5.0 * nrow),
+                             squeeze=False)
+
+    def style(ax, title):
+        ax.set_title(title, fontsize=11)
+        ax.set_xlim(*xlim); ax.set_ylim(*ylim)
         ax.set_xticks([]); ax.set_yticks([])
-        ax.legend(loc='upper right', fontsize=8, framealpha=0.9)
+
+    for row, ov in enumerate(overlays):
+        Zo, yo = emb[ov]
+        # col 0 — baseline(진짜)만
+        ax = axes[row][0]
+        ax.scatter(Zr[:, 0], Zr[:, 1], s=16, c=[cmap(c) for c in yr], linewidths=0)
+        style(ax, f'{real_name} only  (n={len(Zr)})')
+        # col 1 — 비교대상(합성/oracle)만
+        ax = axes[row][1]
+        ax.scatter(Zo[:, 0], Zo[:, 1], s=16, c=[cmap(c) for c in yo], linewidths=0)
+        style(ax, f'{ov} only  (n={len(Zo)})')
+        # col 2 — 대상을 baseline 위에: 진짜=회색 배경, 대상=색 → 새로 채운 영역 강조
+        ax = axes[row][2]
+        ax.scatter(Zr[:, 0], Zr[:, 1], s=14, c='0.78', linewidths=0)
+        ax.scatter(Zo[:, 0], Zo[:, 1], s=14, c=[cmap(c) for c in yo],
+                   alpha=0.75, linewidths=0)
+        style(ax, f'{ov} (color) over {real_name} (gray)')
 
     handles = [plt.Line2D([0], [0], marker='o', ls='', mfc=cmap(c), mec=cmap(c),
                           ms=6, label=str(c)) for c in range(C.NUM_CLASSES)]
     fig.legend(handles=handles, title='digit', loc='center left',
                bbox_to_anchor=(1.0, 0.5), fontsize=8)
-    fig.suptitle(f'{key}  |  feat={feat}  |  채움=진짜, 테두리=합성/oracle',
-                 fontsize=12)
+    fig.suptitle(f'{key}  |  r={r:g}  |  feat={feat}  '
+                 f'(같은 t-SNE 좌표계, 패널만 분리)', fontsize=12)
     fig.tight_layout(rect=[0, 0, 0.97, 1])
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=150, bbox_inches='tight')
